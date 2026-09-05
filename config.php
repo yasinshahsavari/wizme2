@@ -84,8 +84,40 @@ function forwardmessage($tochatId, $fromchatId, $message_id){
     ]);
 }
 function sendPhoto($photo, $caption = null, $keyboard = null, $parse = "MarkDown", $ci =null){
-    global $from_id;
+    global $from_id, $botToken;
     $ci = $ci??$from_id;
+    // If $photo is a URL, download it locally and send as multipart
+    // (Telegram servers may not be able to reach this server, e.g. Iranian VPS)
+    if (preg_match('#^https?://#', $photo)) {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'wizwiz_') . '.png';
+        $content = curl_get_file_contents($photo);
+        if ($content === FALSE || $content === '') {
+            // Fallback: send the URL directly
+            return bot('sendPhoto',[
+                'chat_id'=>$ci,
+                'caption'=>$caption,
+                'reply_markup'=>$keyboard,
+                'photo'=>$photo,
+                'parse_mode'=>$parse
+            ]);
+        }
+        file_put_contents($tmpFile, $content);
+        $url = "https://api.telegram.org/bot" . $botToken . "/sendPhoto";
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, [
+            'chat_id' => $ci,
+            'caption' => $caption,
+            'reply_markup' => $keyboard,
+            'parse_mode' => $parse,
+            'photo' => new CURLFile($tmpFile, 'image/png', 'photo.png')
+        ]);
+        $res = curl_exec($ch);
+        curl_close($ch);
+        @unlink($tmpFile);
+        return json_decode($res);
+    }
     return bot('sendPhoto',[
         'chat_id'=>$ci,
         'caption'=>$caption,
@@ -117,6 +149,7 @@ $range = [
         '91.108.56.0/22',
         '91.108.8.0/22',
         '95.161.64.0/20',
+        '127.0.0.1/32',
     ];
 function check($return = false){
     global $range;
